@@ -185,7 +185,7 @@ def downloadFilesMulti(mainpage: str, names: List[str], sub_side="", query="", g
 
 
 def downloadFilesFromGallery(mainpage: str, subpage: str, xpath='//a', contains="", part=-1, ext="",
-                             cookies: Union[dict, str] = None):
+                             cookies: Union[dict, str] = None, name_source: NameSource = NameSource.URL):
     if isinstance(cookies, str):
         cookies = _cookie_string_2_dict(cookies)
     maindest = os.getcwd()
@@ -199,7 +199,7 @@ def downloadFilesFromGallery(mainpage: str, subpage: str, xpath='//a', contains=
     download_file_direct(gallery_url, dest, filename="%s.html" % subpage_dirname, cookies=cookies)
     for file_url in file_urls:
         file_url = _createUrl(file_url, mainpage)
-        downloadFile(file_url, dest, part=part, ext=ext, cookies=cookies, headers={'Referer': gallery_url})
+        downloadFile(file_url, dest, part=part, ext=ext, cookies=cookies, headers={'Referer': gallery_url}, name_source=name_source)
 
 
 def firstAndLazyLoaded(mainpage: str, dirname: str, xpath='', contains="", cookies: dict = None):
