@@ -7,4 +7,5 @@ natsort
 send2trash
 lxml
 requests
-pydub
+ipython
+ffmpeg-python

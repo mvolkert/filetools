@@ -2,10 +2,9 @@ import csv
 import os
 import sys
 from shutil import copyfile
-from typing import List, Union, OrderedDict, Dict
+from typing import Dict, List, OrderedDict, Union
 
-from pydub import AudioSegment
-from pydub.utils import mediainfo
+import ffmpeg
 
 __all__ = ["replace", "replace_playlists", "folders_to_playlist"]
 
@@ -45,7 +44,7 @@ def replace_playlists(output: str, include_only="", convert=True, copy=False, so
         which playlist files should be included - if empty, all are included
     :param convert:
         optional feature to convert to mp3 if output is old IPod
-        see: https://github.com/jiaaro/pydub
+        note: uses ffmpeg (ffmpeg-python). Ensure ffmpeg/ffprobe are installed and on PATH.
         download: https://www.gyan.dev/ffmpeg/builds/
         put into path in start script: os.environ["PATH"] += os.pathsep + r"C:\Program Files\ffmpeg\bin"
     :param copy:
@@ -77,7 +76,8 @@ def replace_playlists(output: str, include_only="", convert=True, copy=False, so
                     if not line.startswith('#'):
                         name_org = line.strip()
                         if os.path.isfile(name_org):
-                            entries_for_replace = [row for row in mapping_rows if row[source_key] in line]
+                            entries_for_replace = [
+                                row for row in mapping_rows if row[source_key] in line]
                             if len(entries_for_replace) != 0:
                                 row = entries_for_replace[0]
                                 if not row[output]:
@@ -85,27 +85,40 @@ def replace_playlists(output: str, include_only="", convert=True, copy=False, so
                                 if output == "IPod":
                                     fileext = name_org[name_org.rfind("."):]
                                     if fileext in convertible_ext:
-                                        line = row[output] + line[line.rfind(os.path.sep) + 1:]
+                                        line = row[output] + \
+                                            line[line.rfind(os.path.sep) + 1:]
                                         line = line.replace(fileext, ".mp3")
                                         name_dest = line.strip()
                                         if convert and not os.path.isfile(name_dest):
                                             print("convert to mp3: ", name_dest)
-                                            os.makedirs(os.path.dirname(name_dest), exist_ok=True)
-                                            org_version = AudioSegment.from_file(name_org, fileext[1:].lower())
-                                            org_version.export(name_dest, format="mp3", bitrate="320k",
-                                                               tags=mediainfo(name_org)['TAG'])
+                                            os.makedirs(os.path.dirname(
+                                                name_dest), exist_ok=True)
+                                            try:
+                                                # convert and copy metadata
+                                                inp = ffmpeg.input(name_org)
+                                                out = ffmpeg.output(
+                                                    inp, name_dest, format='mp3', audio_bitrate='320k', map_metadata=0)
+                                                ffmpeg.run(
+                                                    out, overwrite_output=True)
+                                            except ffmpeg.Error as e:
+                                                print(
+                                                    "ffmpeg conversion failed:", e)
                                 else:
-                                    line = row[output] + line[line.rfind(os.path.sep) + 1:]
+                                    line = row[output] + \
+                                        line[line.rfind(os.path.sep) + 1:]
                                 if copy:
                                     name_dest = line.strip()
                                     if not row[output] == row[source_key] and not os.path.isfile(name_dest):
-                                        os.makedirs(os.path.dirname(name_dest), exist_ok=True)
+                                        os.makedirs(os.path.dirname(
+                                            name_dest), exist_ok=True)
                                         print('copy: ', name_org, name_dest)
                                         copyfile(name_org, name_dest)
                             else:
-                                print('warning - destination not configured: ', line)
+                                print(
+                                    'warning - destination not configured: ', line)
                         else:
-                            print('warning - does not exist: ', filename, name_org)
+                            print('warning - does not exist: ',
+                                  filename, name_org)
                     if line not in outlines:
                         outlines.append(line)
                     if line not in all_lines:
@@ -160,3 +173,32 @@ def folders_to_playlist():
         all_lines += outlines
     all_lines.sort()
     _create_file(out_dir, "combined.m3u8", all_lines)
+
+
+def _ext_to_format(ext: str):
+    if ext in ['m4a', 'mp4']:
+        return "mp4"
+    return ext
+
+
+def normalize():
+    cwd = os.getcwd()
+    for (dirpath, dirnames, filenames) in os.walk(cwd):
+        basename = os.path.basename(dirpath)
+        out_dir = os.path.join("output", os.path.relpath(dirpath, cwd))
+        os.makedirs(out_dir, exist_ok=True)
+        for filename in filenames:
+            if not file_has_ext(filename, ['.mp3', '.m4a', '.mp4', '.flv']):
+                continue
+            ext = filename[filename.rfind(".") + 1:]
+            inp = os.path.join(dirpath, filename)
+            outp = os.path.join(out_dir, filename)
+            try:
+                stream = ffmpeg.input(inp)
+                # loudnorm filter normalizes audio levels; adjust params if needed
+                stream = stream.filter('loudnorm')
+                out = ffmpeg.output(stream, outp, format=_ext_to_format(
+                    ext), audio_bitrate='260k', map_metadata=0)
+                ffmpeg.run(out, overwrite_output=True)
+            except ffmpeg.Error as e:
+                print('ffmpeg normalization failed for', inp, e)
